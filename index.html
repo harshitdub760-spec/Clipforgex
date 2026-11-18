@@ -1,0 +1,157 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClipForge Fast</title>
+<style>
+:root{--bg:#0a0a0f;--card:#14141c;--line:#262633;--tx:#ececf3;--mu:#8b8ba0;--a:#7c3aed;--b:#3b82f6}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(800px 380px at 50% -10%,#3b1f8a55,transparent),var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+.w{max-width:720px;margin:auto;padding:20px 16px 80px}header{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.logo{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,var(--a),var(--b));display:grid;place-items:center;font-weight:800}
+h1{font-size:20px;margin:0}h1 small{display:block;color:var(--mu);font-weight:400;font-size:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:14px 0}
+#drop{border:2px dashed #3a3a52;text-align:center;padding:34px 12px;cursor:pointer}#drop b{display:block;font-size:17px}#drop span{color:var(--mu);font-size:13px}
+video{width:100%;border-radius:12px;background:#000;max-height:340px}
+label{display:block;font-size:12px;color:var(--mu);margin:8px 0 4px}
+select,input[type=number]{width:100%;padding:11px;border-radius:12px;border:1px solid var(--line);background:#1c1c27;color:var(--tx);font-size:15px}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{width:100%;padding:13px;border:0;border-radius:12px;background:linear-gradient(90deg,var(--a),var(--b));color:#fff;font-weight:700;font-size:15px;cursor:pointer;margin-top:10px}
+.btn.s{background:#232333;font-weight:600;padding:10px;font-size:14px}.btn:disabled{opacity:.5}
+.bar{height:8px;background:#232333;border-radius:8px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--a),var(--b));transition:width .3s}
+.t{display:flex;justify-content:space-between;align-items:center;gap:8px}.tag{background:#2a1f4d;color:#c4b5fd;border-radius:99px;padding:2px 10px;font-size:12px;white-space:nowrap}
+.mu{color:var(--mu);font-size:13px}#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a1620;border:1px solid #7f1d3a;padding:10px 16px;border-radius:12px;display:none;max-width:90%}
+</style></head><body><div class="w">
+<header><div class="logo">C</div><h1>ClipForge Fast<small>No captions · no downloads · instant cuts</small></h1></header>
+<div class="card" id="drop"><b>Tap to choose a video</b><span>MP4, MOV or WEBM</span><input id="file" type="file" accept=".mp4,.mov,.webm,video/*" hidden></div>
+<div id="setup" hidden class="card">
+ <video id="prev" controls playsinline></video><div class="mu" id="meta" style="margin-top:8px"></div>
+ <div class="g"><div><label>Number of clips</label><select id="n"><option>5<option selected>10<option>15<option>20<option>30</select></div>
+ <div><label>Clip length (sec)</label><select id="d"><option>15<option>30<option selected>45<option>60<option>90</select></div></div>
+ <label>Pick moments by</label><select id="mode"><option value="energy">Loudest / most action (audio analysis)</option><option value="even">Evenly spaced across the video</option></select>
+ <button class="btn" id="go" onclick="analyze()">Find clips</button>
+ <div id="pw" hidden><div class="mu" id="pt" style="margin-top:12px"></div><div class="bar"><i id="pi"></i></div></div>
+</div>
+<div id="out"></div></div><div id="toast"></div>
+<script>
+const qs=s=>document.querySelector(s);let file,url,dur,clips=[],ff=null,slowMode=false,q=Promise.resolve();
+const fmt=t=>Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
+const ext=()=>(file.name.split('.').pop()||'mp4').toLowerCase(),oext=()=>ext()==='webm'?'webm':'mp4';
+function toast(m){const t=qs('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',6000)}
+function prog(p,m){qs('#pw').hidden=false;qs('#pt').textContent=m;qs('#pi').style.width=p+'%'}
+const drop=qs('#drop'),inp=qs('#file');drop.onclick=()=>inp.click();inp.onchange=()=>load(inp.files[0]);
+function load(f){if(!f||!/\.(mp4|mov|webm)$/i.test(f.name))return toast('Please choose an MP4, MOV or WEBM file');
+ file=f;ff=null;if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(f);const v=qs('#prev');v.src=url;
+ v.onloadedmetadata=()=>{dur=v.duration;qs('#meta').textContent=`${f.name} · ${fmt(dur)} · ${(f.size/1048576).toFixed(1)} MB`;qs('#setup').hidden=false;qs('#out').innerHTML=''}}
+
+async function energy(){const ab=await new AudioContext().decodeAudioData(await file.arrayBuffer());
+ const c=ab.getChannelData(0),sr=ab.sampleRate,n=Math.floor(ab.duration),E=new Float32Array(n);
+ for(let i=0;i<n;i++){let a=0,k=0;for(let j=i*sr;j<(i+1)*sr&&j<c.length;j+=8){a+=c[j]*c[j];k++}E[i]=Math.sqrt(a/Math.max(k,1))}return E}
+function pick(E,D,N){const n=Math.floor(dur);D=Math.min(D,n);let out=[];
+ if(E){const P=[0],Q=[0];E.forEach((x,i)=>{P.push(P[i]+x);Q.push(Q[i]+x*x)});const C=[];
+  for(let s=0;s+D<=E.length;s+=2){const m=(P[s+D]-P[s])/D,v=(Q[s+D]-Q[s])/D-m*m;C.push({s,sc:m+Math.sqrt(Math.max(v,0))})}
+  for(const c of C.sort((a,b)=>b.sc-a.sc)){if(out.every(k=>c.s>=k.s+D||c.s+D<=k.s))out.push(c);if(out.length==N)break}}
+ else{N=Math.min(N,Math.floor(n/D));const g=(n-N*D)/(N+1);out=Array.from({length:N},(_,i)=>({s:g*(i+1)+D*i}))}
+ return out.sort((a,b)=>a.s-b.s).map(c=>({s:Math.round(c.s*10)/10,e:Math.round((c.s+D)*10)/10}))}
+
+async function analyze(){qs('#go').disabled=true;try{let E=null;
+ if(qs('#mode').value==='energy'){prog(30,'Analysing audio…');await new Promise(r=>setTimeout(r,50));
+  try{E=await energy()}catch(e){toast('No usable audio found — using evenly spaced clips instead.')}}
+ clips=pick(E,+qs('#d').value,+qs('#n').value);if(!clips.length)throw Error('Video is too short for that clip length.');
+ prog(100,clips.length+' clips found');show()}catch(e){toast(e.message||String(e))}qs('#go').disabled=false}
+
+function show(){qs('#out').innerHTML=`<div class="card"><div class="t"><b>${clips.length} clips ready</b><span class="mu">Adjust times if you like</span></div>
+ <button class="btn" id="all" onclick="saveAll()">Cut &amp; save all clips</button><div class="bar"><i id="ai"></i></div><div class="mu" id="allp" style="margin-top:6px"></div>
+ <button class="btn s" id="slow" hidden onclick="slowMode=true;toast('Slow real-time mode on. Tap Cut all again.')">Instant cut failed — use slow mode</button></div>`+
+ clips.map((c,i)=>`<div class="card"><div class="t"><b>Clip ${i+1}</b><span class="tag" id="tg${i}">${fmt(c.s)}–${fmt(c.e)}</span></div>
+ <video id="v${i}" controls playsinline preload="metadata" src="${url}#t=${c.s},${c.e}" style="margin-top:10px"></video>
+ <div class="g"><div><label>Start (s)</label><input type="number" step=".1" value="${c.s}" onchange="ed(${i},'s',this.value)"></div>
+ <div><label>End (s)</label><input type="number" step=".1" value="${c.e}" onchange="ed(${i},'e',this.value)"></div></div>
+ <button class="btn s" id="b${i}" onclick="save1(${i})">Cut &amp; download</button><div id="o${i}"></div></div>`).join('')}
+function ed(i,k,v){clips[i][k]=+v;clips[i].res=null;qs('#o'+i).innerHTML='';delete qs('#o'+i).dataset.u;qs('#b'+i).textContent='Cut & download';const c=clips[i];qs('#v'+i).src=`${url}#t=${c.s},${c.e}`;qs('#tg'+i).textContent=fmt(c.s)+'–'+fmt(c.e)}
+
+const enc=new TextEncoder(),T4=(b,i)=>String.fromCharCode(b[i],b[i+1],b[i+2],b[i+3]);
+const U=a=>{const o=new Uint8Array(a.length*4),d=new DataView(o.buffer);a.forEach((v,i)=>d.setUint32(i*4,v>>>0));return o};
+function mk(type,...parts){let len=8;for(const p of parts)len+=p.length;const o=new Uint8Array(len);new DataView(o.buffer).setUint32(0,len);o.set(enc.encode(type),4);let q=8;for(const p of parts){o.set(p,q);q+=p.length}return o}
+function kids(b,s,e){const d=new DataView(b.buffer,b.byteOffset,b.byteLength),out=[];while(s+8<=e){let size=d.getUint32(s),hl=8;if(size===1){size=Number(d.getBigUint64(s+8));hl=16}else if(size===0)size=e-s;if(size<8)break;out.push({type:T4(b,s+4),s,e:s+size,p:s+hl});s+=size}return out}
+const fnd=(b,x,t)=>kids(b,x.p,x.e).find(k=>k.type===t);
+function parseTrack(b,trak){const d=new DataView(b.buffer,b.byteOffset,b.byteLength);
+ const tkhd=fnd(b,trak,'tkhd'),mdia=fnd(b,trak,'mdia'),mdhd=fnd(b,mdia,'mdhd'),hdlr=fnd(b,mdia,'hdlr'),minf=fnd(b,mdia,'minf');
+ const handler=T4(b,hdlr.p+8);if(handler!=='vide'&&handler!=='soun')return null;
+ const stblB=fnd(b,minf,'stbl'),S={};for(const k of kids(b,stblB.p,stblB.e))S[k.type]=k;
+ if(!S.stsz||!S.stts||!S.stsc||!(S.stco||S.co64))throw Error('Unsupported MP4 layout');
+ const ts=d.getUint32(mdhd.p+(b[mdhd.p]?20:12)),count=d.getUint32(S.stsz.p+8),fixed=d.getUint32(S.stsz.p+4);
+ const sizes=new Uint32Array(count);for(let i=0;i<count;i++)sizes[i]=fixed||d.getUint32(S.stsz.p+12+4*i);
+ const dts=new Float64Array(count);let q=S.stts.p+4;const ne=d.getUint32(q);q+=4;let idx=0,t=0;
+ for(let e=0;e<ne;e++){const c=d.getUint32(q),dl=d.getUint32(q+4);q+=8;for(let k=0;k<c&&idx<count;k++){dts[idx++]=t;t+=dl}}
+ const co=new Int32Array(count);if(S.ctts){q=S.ctts.p+4;const n=d.getUint32(q);q+=4;idx=0;for(let e=0;e<n;e++){const c=d.getUint32(q),o=d.getInt32(q+4);q+=8;for(let k=0;k<c&&idx<count;k++)co[idx++]=o}}
+ const sync=new Uint8Array(count);if(S.stss){q=S.stss.p+4;const n=d.getUint32(q);q+=4;for(let e=0;e<n;e++){sync[d.getUint32(q)-1]=1;q+=4}}else sync.fill(1);
+ q=S.stsc.p+4;const nsc=d.getUint32(q);q+=4;const sc=[];for(let e=0;e<nsc;e++){sc.push([d.getUint32(q),d.getUint32(q+4)]);q+=12}
+ const big=!!S.co64;q=(S.stco||S.co64).p+4;const nc=d.getUint32(q);q+=4;const offs=new Float64Array(count);let si=0,ei=0;
+ for(let c=1;c<=nc;c++){while(ei+1<sc.length&&sc[ei+1][0]<=c)ei++;let off=big?Number(d.getBigUint64(q)):d.getUint32(q);q+=big?8:4;
+  for(let k=0;k<sc[ei][1]&&si<count;k++){offs[si]=off;off+=sizes[si];si++}}
+ return{handler,ts,count,sizes,dts,co,sync,offs,total:t,hasCtts:!!S.ctts,hasStss:!!S.stss,
+  tkhd:b.slice(tkhd.s,tkhd.e),tkhdP:tkhd.p-tkhd.s,mdhd:b.slice(mdhd.s,mdhd.e),mdhdP:mdhd.p-mdhd.s,hdlr:b.slice(hdlr.s,hdlr.e),
+  stsd:b.slice(S.stsd.s,S.stsd.e),other:kids(b,minf.p,minf.e).filter(k=>k.type!=='stbl').map(k=>b.slice(k.s,k.e))}}
+function setDur(b,off,v1,tsOff,dur){const d=new DataView(b.buffer);if(v1)d.setBigUint64(off,BigInt(dur));else d.setUint32(off,dur)}
+function rle(a){const r=[];for(const v of a){const l=r.length;if(l&&r[l-1]===v)r[l-2]++;else r.push(1,v)}return r}
+async function cutMp4(file,s,e){
+ const top=[];for(let pos=0;pos<file.size;){const h=new DataView(await file.slice(pos,pos+16).arrayBuffer());let size=h.getUint32(0),hl=8;
+  const type=String.fromCharCode(h.getUint8(4),h.getUint8(5),h.getUint8(6),h.getUint8(7));if(size===1){size=Number(h.getBigUint64(8));hl=16}else if(size===0)size=file.size-pos;if(size<8)break;top.push({type,pos,size,hl});pos+=size}
+ const mo=top.find(x=>x.type==='moov'),fo=top.find(x=>x.type==='ftyp');if(!mo)throw Error('Not a standard MP4/MOV file');
+ const mb=new Uint8Array(await file.slice(mo.pos,mo.pos+mo.size).arrayBuffer());
+ const ftyp=fo?new Uint8Array(await file.slice(fo.pos,fo.pos+fo.size).arrayBuffer()):mk('ftyp',enc.encode('isom'),U([512]),enc.encode('isomiso2avc1mp41'));
+ const mk_=kids(mb,mo.hl,mb.length),mvhd=mk_.find(k=>k.type==='mvhd');
+ const tr=mk_.filter(k=>k.type==='trak').map(k=>parseTrack(mb,k)).filter(Boolean);
+ const V=tr.find(t=>t.handler==='vide');if(!V||!V.count)throw Error('No video track found (fragmented MP4 is not supported)');
+ let ks=0;for(let i=0;i<V.count;i++){if(V.dts[i]>s*V.ts)break;if(V.sync[i])ks=i}
+ let ke=V.count;for(let i=ks+1;i<V.count;i++)if(V.dts[i]>=e*V.ts){ke=i;break}
+ const T0=V.dts[ks]/V.ts,T1=(ke<V.count?V.dts[ke]:V.total)/V.ts;
+ const lb=(t,x)=>{let lo=0,hi=t.count;while(lo<hi){const m=(lo+hi)>>1;if(t.dts[m]<x)lo=m+1;else hi=m}return lo};
+ const use=[];for(const t of tr){if(t===V){t.a=ks;t.b=ke}else{t.a=lb(t,T0*t.ts);t.b=lb(t,T1*t.ts)}if(t.b>t.a)use.push(t)}
+ const chunks=[];
+ use.forEach((t,ti)=>{const n=t.b-t.a,base=t.dts[t.a];t.n=n;t.delta=[];t.chunks=[];let cur=-1,mn=1e12;
+  for(let k=0;k<n;k++){const i=t.a+k;t.delta.push((i+1<t.count?t.dts[i+1]:t.total)-t.dts[i]);if(t.co[i]<mn)mn=t.co[i];
+   const sec=Math.floor((t.dts[i]-base)/t.ts);if(sec!==cur){cur=sec;const c={t,ti,sec,k0:k,cnt:0};t.chunks.push(c);chunks.push(c)}t.chunks.at(-1).cnt++}
+  t.mn=mn;t.dur=t.delta.reduce((a,b)=>a+b,0)});
+ chunks.sort((x,y)=>x.sec-y.sec||x.ti-y.ti);
+ let rel=0;const parts=[];for(const c of chunks){c.rel=rel;for(let k=c.k0;k<c.k0+c.cnt;k++){const i=c.t.a+k,off=c.t.offs[i],sz=c.t.sizes[i],l=parts.at(-1);
+  if(l&&l[0]+l[1]===off)l[1]+=sz;else parts.push([off,sz]);rel+=sz}}
+ if(rel>4e9)throw Error('Clip too large');
+ const mvp=mvhd.p,v1m=mb[mvp]===1,mts=new DataView(mb.buffer).getUint32(mvp+(v1m?20:12));
+ const mvhdN=mb.slice(mvhd.s,mvhd.e),dur=Math.max(...use.map(t=>t.dur/t.ts));
+ setDur(mvhdN,mvhd.p-mvhd.s+(v1m?24:16),v1m,0,Math.round(dur*mts));
+ const build=base=>mk('moov',mvhdN,...use.map(t=>{
+  const tk=t.tkhd.slice(),v1=tk[t.tkhdP]===1;setDur(tk,t.tkhdP+(v1?28:20),v1,0,Math.round(t.dur/t.ts*mts));
+  const md=t.mdhd.slice(),v1d=md[t.mdhdP]===1;setDur(md,t.mdhdP+(v1d?24:16),v1d,0,t.dur);
+  const st=[t.stsd,mk('stts',U([0,0,...[]])) ];st.pop();const r=rle(t.delta);
+  st.push(mk('stts',U([0,r.length/2,...r])));
+  if(t.hasCtts){const c=[];for(let k=0;k<t.n;k++)c.push(t.co[t.a+k]-t.mn);const q=rle(c);st.push(mk('ctts',U([0,q.length/2,...q])))}
+  if(t.hasStss){const l=[];for(let k=0;k<t.n;k++)if(t.sync[t.a+k])l.push(k+1);st.push(mk('stss',U([0,l.length,...l])))}
+  const sc=[];t.chunks.forEach((c,i)=>{if(!sc.length||sc.at(-1)[1]!==c.cnt)sc.push([i+1,c.cnt,1])});
+  st.push(mk('stsc',U([0,sc.length,...sc.flat()])));
+  const sz=[0,0,t.n];for(let k=0;k<t.n;k++)sz.push(t.sizes[t.a+k]);st.push(mk('stsz',U(sz)));
+  st.push(mk('stco',U([0,t.chunks.length,...t.chunks.map(c=>base+c.rel)])));
+  return mk('trak',tk,mk('mdia',md,t.hdlr,mk('minf',...t.other,mk('stbl',...st))))}));
+ const moovLen=build(0).length,mdatHdr=new Uint8Array(8);new DataView(mdatHdr.buffer).setUint32(0,rel+8);mdatHdr.set(enc.encode('mdat'),4);
+ const moov=build(ftyp.length+moovLen+8);
+ return new Blob([ftyp,moov,mdatHdr,...parts.map(p=>file.slice(p[0],p[0]+p[1]))],{type:'video/mp4'})}
+async function cutSlow(c){const v=document.createElement('video');v.src=url;v.playsInline=true;await new Promise(r=>v.onloadedmetadata=r);
+ v.currentTime=c.s;await Promise.race([new Promise(r=>v.onseeked=r),new Promise(r=>setTimeout(r,1500))]);
+ if(!window.MediaRecorder)throw Error('This browser cannot cut video.');
+ const st=(v.captureStream||v.mozCaptureStream).call(v),mime=['video/mp4','video/webm;codecs=vp9,opus','video/webm'].find(m=>MediaRecorder.isTypeSupported(m));
+ const rec=new MediaRecorder(st,{mimeType:mime}),ch=[];rec.ondataavailable=e=>ch.push(e.data);
+ return new Promise((res,rej)=>{rec.onstop=()=>res({blob:new Blob(ch,{type:mime.split(';')[0]}),ext:mime.startsWith('video/mp4')?'mp4':'webm'});
+  v.ontimeupdate=()=>{if(v.currentTime>=c.e){v.pause();rec.stop()}};rec.start();v.play().catch(rej)})}
+function cut(c){const p=q.then(async()=>{if(slowMode||ext()==='webm')return cutSlow(c);try{return{blob:await cutMp4(file,c.s,c.e),ext:'mp4'}}catch(e){throw Error('Instant cut failed: '+(e.message||e)+' (WEBM and fragmented files need slow mode)')}});q=p.catch(()=>{});return p}
+function saveBlob(b,n){const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=n;a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),1500)}
+function showRes(i){const c=clips[i],o=qs('#o'+i);if(o.dataset.u)return;o.dataset.u=1;const u=URL.createObjectURL(c.res.blob);
+ const can=navigator.canShare&&navigator.canShare({files:[new File([c.res.blob],'a.mp4',{type:'video/mp4'})]});
+ o.innerHTML=`<video controls playsinline src="${u}" style="margin-top:10px"></video><div class="mu" style="margin-top:6px">Download didn't start? Tap ⋮ on this player → Download${can?', or use Share':''}.</div>`+(can?`<button class="btn s" style="margin-top:8px" onclick="share(${i})">Share / save…</button>`:'')}
+async function share(i){try{await navigator.share({files:[new File([clips[i].res.blob],`clip${i+1}.mp4`,{type:'video/mp4'})]})}catch(e){if(e.name!=='AbortError')toast('Share failed: '+e.message)}}
+async function save1(i){const b=qs('#b'+i),c=clips[i];if(c.res){saveBlob(c.res.blob,`clip${i+1}.${c.res.ext}`);showRes(i);return}
+ b.disabled=true;b.textContent='Cutting…';
+ try{c.res=await cut(c);b.textContent='Download clip';saveBlob(c.res.blob,`clip${i+1}.${c.res.ext}`);showRes(i)}catch(e){toast(e.message||String(e));b.textContent='Retry'}b.disabled=false}
+async function saveAll(){const b=qs('#all'),t0=Date.now(),L=qs('#allp');b.disabled=true;qs('#ai').style.width='0';
+ try{  for(let i=0;i<clips.length;i++){const c=clips[i],t=Date.now();if(!c.res){L.textContent=`Cutting clip ${i+1} of ${clips.length}…`;c.res=await cut(c)}
+   qs('#b'+i).textContent='Download clip';qs('#ai').style.width=((i+1)/clips.length*100)+'%';L.textContent=`Clip ${i+1}/${clips.length} ready (${((Date.now()-t)/1000).toFixed(1)}s)`}
+  L.textContent=`All ${clips.length} clips ready in ${Math.round((Date.now()-t0)/1000)}s. Tap Download on any clip.`}
+ catch(e){L.textContent='Stopped: '+(e.message||e);toast(e.message||String(e));qs('#slow').hidden=false}b.disabled=false}
+</script>
+</body></html>
